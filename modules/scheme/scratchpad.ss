@@ -106,6 +106,7 @@
 
 (define (clear)
   (rm-task 'every-frame-task)
+  (clear-timed-tasks)
   (clear-engine)
   (ffgl-clear-instances)
   (light-diffuse 0 (vector 1 1 1))

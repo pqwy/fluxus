@@ -31,13 +31,24 @@
 ;; EndSectionDoc
 
 #lang racket/base
-(require "time.ss")
+(require "time.ss" "pqueue.ss")
 
-(provide spawn-task ls-tasks rm-task rm-all-tasks run-tasks spawn-timed-task time-now print-error
-		 task-running?)
+(provide spawn-task ls-tasks rm-task rm-all-tasks run-tasks spawn-timed-task clear-timed-tasks
+         time-now print-error task-running?)
+
 
 (define task-list '())  ; alist of tasks - maintained in sorted order
-(define timed-task-list '()) ; a separate list of timed tasks
+
+
+(struct timed-task (time thunk))
+
+; a priority queue of timed tasks
+(define timed-tasks
+  (let ([<=? (lambda (t1 t2) (<= (timed-task-time t1)
+                                 (timed-task-time t2)))])
+    (make-queue <=?)))
+
+(define (clear-timed-tasks) (queue-erase! timed-tasks))
 
 ;; StartFunctionDoc-en
 ;; spawn-task
@@ -129,8 +140,6 @@
 ;;      [(continuation? task) (task 'resume)]
         [else (error "Non-thunk or continuation passed to call-task")]))
 
-(define-struct timed-task (time thunk))
-
 ;; StartFunctionDoc-en
 ;; spawn-timed-task time thunk
 ;; Returns: void
@@ -144,7 +153,7 @@
 ;; EndFunctionDoc    
 
 (define (spawn-timed-task time thunk)
-	(set! timed-task-list (cons (make-timed-task time thunk) timed-task-list)))
+        (queue-insert! timed-tasks (timed-task time thunk)))
 
 (define (print-error e)
   (when (exn? e)
@@ -158,41 +167,30 @@
         (printf "~a~n" (car c))))))
 
 (define (run-tasks)
-        (for-each
-         (lambda (task)
-           (let/ec out
-                   ;; handle errors by reporting and removing task in error
-                   (let ([task-error
-                          (lambda (e)
-                            (printf "Error in Task '~a - Task removed.~%"
-                                    (car task))
-                            (rm-task (car task))						
-							(print-error e)
-                            (out #t))])
-                     (call-with-exception-handler task-error
-                                                  (lambda ()
-                                                    (unless (call-task (cdr task))
-                                                            (rm-task (car task)))))
-                     ))
-           )
-         task-list)
-		 
-		 ; do the timed tasks, and update the list
-	 	(set! timed-task-list
-			(filter
-				(lambda (timed-task)
-				(cond ((> (time-now) (timed-task-time timed-task))
-				(let/ec out
-                   ;; handle errors by reporting them
-                   (let ([task-error
+
+  (for ([task (in-list task-list)])
+       (with-handlers ([exn:fail?
+                         ;; handle errors by reporting and removing task in error
+                         (lambda (e)
+                           (printf "Error in Task '~a - Task removed.~%"
+                                   (car task))
+                           (rm-task (car task))
+                           (print-error e))])
+         (unless (call-task (cdr task))
+           (rm-task (car task)))))
+
+  ; do the timed tasks
+  (let loop ()
+    (unless (or (queue-empty? timed-tasks)
+                (< (time-now)
+                   (timed-task-time (queue-top timed-tasks))))
+      (let ([timed-task (queue-top timed-tasks)])
+        (queue-delete-top! timed-tasks)
+        (with-handlers ([exn:fail?
                           (lambda (e)
                             (printf "Error in Timed Task: ~%")
-							(print-error e)
-                            (out #t))])
-                     (call-with-exception-handler task-error
-                                                  (lambda ()
-                                                    (call-task (timed-task-thunk timed-task))))
-                     ))
-					 #f)
-					 (else #t))) 
-				timed-task-list)))
+                            (print-error e))])
+                       (call-task (timed-task-thunk timed-task)))
+        (loop)))))
+
+
