@@ -147,17 +147,16 @@
 	(set! timed-task-list (cons (make-timed-task time thunk) timed-task-list)))
 
 (define (print-error e)
-	(printf "~a ~n" (exn-message e))
-    (when (exn? e) 
-      (printf "call stack:~n")
-      (for-each 
-        (lambda (c)
-          (printf "~a " (car c))
-		  (when (cdr c)
-		  	(printf "line ~a in ~a~n" (srcloc-line (cdr c)) (srcloc-source (cdr c)))))
-        (continuation-mark-set->context
-          (exn-continuation-marks e)))))
-		  
+  (when (exn? e)
+    (printf "~a ~n" (exn-message e))
+    (printf "call stack:~n")
+    (for ([c (continuation-mark-set->context
+               (exn-continuation-marks e))])
+      (if (cdr c)
+        (printf "~a [line ~a in ~a]~n"
+                (car c) (srcloc-line (cdr c)) (srcloc-source (cdr c)))
+        (printf "~a~n" (car c))))))
+
 (define (run-tasks)
         (for-each
          (lambda (task)
