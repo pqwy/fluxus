@@ -39,13 +39,9 @@
 
 (define task-list '())  ; alist of tasks - maintained in sorted order
 
-
-(struct timed-task (time thunk))
-
 ; a priority queue of timed tasks
 (define timed-tasks
-  (let ([<=? (lambda (t1 t2) (<= (timed-task-time t1)
-                                 (timed-task-time t2)))])
+  (let ([<=? (lambda (t1 t2) (<= (car t1) (car t2)))])
     (make-queue <=?)))
 
 (define (clear-timed-tasks) (queue-erase! timed-tasks))
@@ -110,9 +106,8 @@
 ;; EndFunctionDoc
 
 (define (ls-tasks)
-  (for-each (lambda (t)
-              (printf "task: ~a ~a~%" (car t) (cdr t)))
-            task-list))
+  (for ([t (in-list task-list)])
+    (printf "task: ~a ~a~%" (car t) (cdr t))))
 
 
 ;; StartFunctionDoc-en
@@ -128,7 +123,7 @@
 ;; EndFunctionDoc
 
 (define (task-running? t)
-  (if (assoc t task-list) #t #f))
+  (and (assoc t task-list) #t))
 
 
 (define (thunk? t) (let ([arity (procedure-arity t)])
@@ -153,7 +148,7 @@
 ;; EndFunctionDoc    
 
 (define (spawn-timed-task time thunk)
-        (queue-insert! timed-tasks (timed-task time thunk)))
+        (queue-insert! timed-tasks (cons time thunk)))
 
 (define (print-error e)
   (when (exn? e)
@@ -172,9 +167,9 @@
        (with-handlers ([exn:fail?
                          ;; handle errors by reporting and removing task in error
                          (lambda (e)
+                           (rm-task (car task))
                            (printf "Error in Task '~a - Task removed.~%"
                                    (car task))
-                           (rm-task (car task))
                            (print-error e))])
          (unless (call-task (cdr task))
            (rm-task (car task)))))
@@ -182,15 +177,14 @@
   ; do the timed tasks
   (let loop ()
     (unless (or (queue-empty? timed-tasks)
-                (< (time-now)
-                   (timed-task-time (queue-top timed-tasks))))
-      (let ([timed-task (queue-top timed-tasks)])
+                (< (time-now) (car (queue-top timed-tasks))))
+      (let ([task (cdr (queue-top timed-tasks))])
         (queue-delete-top! timed-tasks)
         (with-handlers ([exn:fail?
                           (lambda (e)
                             (printf "Error in Timed Task: ~%")
                             (print-error e))])
-                       (call-task (timed-task-thunk timed-task)))
+                       (call-task task))
         (loop)))))
 
 
