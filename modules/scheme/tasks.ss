@@ -151,20 +151,27 @@
         (queue-insert! timed-tasks (cons time thunk)))
 
 (define (print-error e)
-  (when (exn? e)
-    (printf "~a ~n" (exn-message e))
-    (printf "call stack:~n")
-    (for ([c (continuation-mark-set->context
-               (exn-continuation-marks e))])
-      (if (cdr c)
-        (printf "~a [line ~a in ~a]~n"
-                (car c) (srcloc-line (cdr c)) (srcloc-source (cdr c)))
-        (printf "~a~n" (car c))))))
+  (cond [(exn? e)
+         (printf "~a ~n" (exn-message e))
+         (printf "call stack:~n")
+         (for ([c (continuation-mark-set->context
+                    (exn-continuation-marks e))])
+           (if (cdr c)
+             (printf "~a [line ~a in ~a]~n"
+                     (car c) (srcloc-line (cdr c)) (srcloc-source (cdr c)))
+             (printf "~a~n" (car c))))]
+        [else
+         (printf "** unrecognized error: ~a~n" e)]))
+
+
+; handle just about anything, else we can get into a nasty loop where
+; unrecognize exceptionas are thrown every frame.
+(define (not-exn:break? e) (not (exn:break? e)))
 
 (define (run-tasks)
 
   (for ([task (in-list task-list)])
-       (with-handlers ([exn:fail?
+       (with-handlers ([not-exn:break?
                          ;; handle errors by reporting and removing task in error
                          (lambda (e)
                            (rm-task (car task))
@@ -180,7 +187,7 @@
                 (< (time-now) (car (queue-top timed-tasks))))
       (let ([task (cdr (queue-top timed-tasks))])
         (queue-delete-top! timed-tasks)
-        (with-handlers ([exn:fail?
+        (with-handlers ([not-exn:break?
                           (lambda (e)
                             (printf "Error in Timed Task: ~%")
                             (print-error e))])
