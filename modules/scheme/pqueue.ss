@@ -1,8 +1,9 @@
+;;
 ;; Priority queue. The underlying structure is a mutable skew tree. Simple and
 ;; plenty fast.
 ;;
-;; XXX Figure out why the match macro work on structs in fluxus.
-;; (syntax-local 'structname) during expansion, in fluxus, is not struct-info?.
+;; XXX Figure out why the match macro won't work on structs in fluxus.
+;; (syntax-local 'structname) during expansion, in fluxus, is not struct-info?
 ;; Why??
 
 #lang racket/base

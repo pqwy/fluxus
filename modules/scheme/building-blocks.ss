@@ -17,8 +17,8 @@
 (require "fluxus-modules.ss")
 (require "tasks.ss")
 (provide
- with-state
- with-primitive
+ with-state get-ogl-state apply-saved-ogl-state
+ with-primitive current-grab-target
  with-pixels-renderer
  pdata-map!
  pdata-index-map!
@@ -167,14 +167,43 @@
 ;;    (build-torus 1 2 30 30)))
 ;; EndFunctionDoc
 
-(define-syntax with-state
-  (syntax-rules ()
-    ((_ a ...)
-     (begin
-       (push)
-       (let ((r (begin a ...)))
-         (pop)
-         r)))))
+(define-syntax-rule
+  (with-state e e1 ...)
+  (call-preserving-state (lambda () e e1 ...)))
+
+;; Shield state both ways. Guard local changes from leaking out, but also make
+;; them persist across escapes.
+;;
+;; Unsignal possible grab state to the dyn. extent.
+;;
+(define (call-preserving-state thunk)
+
+  (let* ([exit-state #f]
+         [entry-handler (lambda ()
+                          (push)
+                          (when exit-state
+                            (apply-saved-ogl-state exit-state)))]
+         [exit-handler (lambda ()
+                         (set! exit-state (get-ogl-state))
+                         (pop))])
+
+    (dynamic-wind
+      entry-handler
+      (lambda () (parameterize ([current-grab-target #f]) (thunk)))
+      exit-handler)))
+
+
+;; This is tricky... and wrong. The problem is that we can't get hold of much
+;; OpenGL state, and the rest will change in between suspension and resumption.
+
+(define (get-ogl-state)
+  ;; Not much for now :(
+  (get-transform))
+
+(define (apply-saved-ogl-state state)
+  (identity)
+  (concat state))
+
 
 ;; StartFunctionDoc-en
 ;; with-primitive primitive expression ...
@@ -207,14 +236,25 @@
 ;;    (colour (vector 0 1 0)))
 ;; EndFunctionDoc
 
-(define-syntax with-primitive
-  (syntax-rules ()
-    ((_ a b ...)
-     (begin
-       (grab a)
-       (let ((r (begin b ...)))
-         (ungrab)
-         r)))))
+(define-syntax-rule
+  (with-primitive p e e1 ...)
+  (call-with-primitive p (lambda () e e1 ...)))
+
+
+(define current-grab-target (make-parameter #f))
+
+;; Ensure the grab is active during the dynamic extent of the thunk even in the
+;; presence of jumps out and later re-entries.
+;;
+;; Signal the current grab to the dyn. extent, so `spawn's can pick it up and copy
+;; it.
+;;
+(define (call-with-primitive primitive thunk)
+  (dynamic-wind
+    (lambda () (grab primitive))
+    (lambda () (parameterize ([current-grab-target primitive]) (thunk)))
+    ungrab))
+
 
 ;; StartFunctionDoc-en
 ;; with-pixels-renderer pixels-primitive expression ...

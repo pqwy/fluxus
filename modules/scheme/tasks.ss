@@ -37,9 +37,11 @@
          time-now print-error task-running?)
 
 
-(define task-list '())  ; alist of tasks - maintained in sorted order
+;; The mapping between names and tasks. Hash, because this could frequently
+;; exercise random access.
+(define tasks #hasheq())
 
-; a priority queue of timed tasks
+; A (mutable) priority queue of timed tasks.
 (define timed-tasks
   (let ([<=? (lambda (t1 t2) (<= (car t1) (car t2)))])
     (make-queue <=?)))
@@ -62,12 +64,8 @@
 ;; (rm-task 'torus-task)
 ;; EndFunctionDoc    
 
-(define (spawn-task thunk . args)
-  (let ([name (if (null? args) (string->symbol (symbol->string (gensym))) (car args))])
-    (rm-task name)      ; incase it already exists - replace it
-    (set! task-list  (sort (cons (cons name thunk) task-list)
-                           #:key (lambda (l) (symbol->string (car l)))
-                           string<?))))
+(define (spawn-task thunk [name (gensym 'task-)])
+  (set! tasks (hash-set tasks name thunk)))
 
 ;; StartFunctionDoc-en
 ;; rm-task
@@ -80,7 +78,7 @@
 ;; EndFunctionDoc    
 
 (define (rm-task name)
-  (set! task-list (remove name task-list (lambda (a b) (eq? a (car b))))))
+  (set! tasks (hash-remove tasks name)))
 
 ;; StartFunctionDoc-en
 ;; rm-all-tasks
@@ -92,7 +90,7 @@
 ;; EndFunctionDoc    
 
 (define (rm-all-tasks)
-  (set! task-list '()))
+  (set! tasks #hasheq()))
 
 ;; StartFunctionDoc-en
 ;; ls-tasks
@@ -106,8 +104,12 @@
 ;; EndFunctionDoc
 
 (define (ls-tasks)
-  (for ([t (in-list task-list)])
-    (printf "task: ~a ~a~%" (car t) (cdr t))))
+  (for ([(name task) tasks])
+    (printf "task: ~a ~a~%" name task))
+
+  (let ([c (queue-count timed-tasks)])
+    (unless (zero? c)
+      (printf "~%* scheduled tasks: ~a~%" c))))
 
 
 ;; StartFunctionDoc-en
@@ -122,13 +124,11 @@
 ;; (display (task-running? 'torus-task))(newline)
 ;; EndFunctionDoc
 
-(define (task-running? t)
-  (and (assoc t task-list) #t))
+(define (task-running? name)
+  (hash-has-key? tasks name))
 
 
-(define (thunk? t) (let ([arity (procedure-arity t)])
-                     (or (eq? arity 0)
-                         (and (list? arity) (eq? (car arity) 0)))))
+(define (thunk? t) (and (procedure? t) (procedure-arity-includes? t 0)))
 
 (define (call-task task)
   (cond [(thunk? task) (task)]
@@ -148,7 +148,7 @@
 ;; EndFunctionDoc    
 
 (define (spawn-timed-task time thunk)
-        (queue-insert! timed-tasks (cons time thunk)))
+  (queue-insert! timed-tasks (cons time thunk)))
 
 (define (print-error e)
   (cond [(exn? e)
@@ -161,28 +161,33 @@
                      (car c) (srcloc-line (cdr c)) (srcloc-source (cdr c)))
              (printf "~a~n" (car c))))]
         [else
-         (printf "** unrecognized error: ~a~n" e)]))
+         (printf "** unrecognized error: ~a **~n" e)]))
 
 
-; handle just about anything, else we can get into a nasty loop where
-; unrecognize exceptionas are thrown every frame.
+;; Handle just about anything, else we can get into a nasty loop where
+;; unrecognized exceptionas are thrown every frame.
+;;
 (define (not-exn:break? e) (not (exn:break? e)))
 
 (define (run-tasks)
 
-  (for ([task (in-list task-list)])
-       (with-handlers ([not-exn:break?
-                         ;; handle errors by reporting and removing task in error
-                         (lambda (e)
-                           (rm-task (car task))
-                           (printf "Error in Task '~a - Task removed.~%"
-                                   (car task))
-                           (print-error e))])
-         (unless (call-task (cdr task))
-           (rm-task (car task)))))
+  ;; Iterate through a snapshot of (recurrent) tasks. If any task starts a new
+  ;; one, the iteration is safe, and the new task will appear the next time
+  ;; around.
+  (for ([(name task) (in-hash tasks)])
+    (with-handlers ([not-exn:break?
+                      ;; handle errors by reporting and removing task in error
+                      (lambda (e)
+                        (rm-task name)
+                        (printf "Error in Task '~a - Task removed.~%" name)
+                        (print-error e))])
+      (unless (call-task task)
+        (rm-task task))))
 
-  ; do the timed tasks
-  (let loop ()
+  ;; Repeatedly dequeue the earliest timed task, until no more. Changes the queue
+  ;; in-place, and any recursively started timed tasks are added immediately.
+  ;; This means they could run during the same loop.
+  (let roll ()
     (unless (or (queue-empty? timed-tasks)
                 (< (time-now) (car (queue-top timed-tasks))))
       (let ([task (cdr (queue-top timed-tasks))])
@@ -191,7 +196,43 @@
                           (lambda (e)
                             (printf "Error in Timed Task: ~%")
                             (print-error e))])
-                       (call-task task))
-        (loop)))))
+          (call-task task))
+        (roll)))))
+
+
+; RACKET THREADS. THEY DON'T WORK.
+;
+; ;; A random number. It was obtained by a throw of an unbiased dice.
+; (define tasks-wait-period 5)
+
+; (define (run-tasks)
+;   (let ([r (timeout-after tasks-wait-period
+;                           (lambda () 'dead) raw-run-tasks)])
+;     (when (eq? r 'dead)
+;       (clear-timed-tasks)
+;       (rm-all-tasks)
+;       (error 'run-tasks
+;              "Per-frame tasks took more than ~a seconds and have been reset."
+;              tasks-wait-period))))
+
+
+
+; (define (timeout-after sec to-handler thunk)
+;   (let* ([main (current-thread)]
+;          [killed #f]
+;          [guardian
+;            (thread (lambda ()
+;                      (sleep sec)
+;                      (set! killed #t)
+;                      (break-thread main)))])
+
+;     (with-handlers ([exn:break?
+;                       (lambda (e)
+;                         (if killed
+;                           (begin (printf ">> KILLED~%") (to-handler))
+;                           (raise e)))])
+;       (begin0
+;         (thunk)
+;         (kill-thread guardian)))))
 
 
