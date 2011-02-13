@@ -43,8 +43,7 @@
 
 ; A (mutable) priority queue of timed tasks.
 (define timed-tasks
-  (begin
-    (define (<=? t1 t2) (<= (car t1) (car t2)))
+  (let ([<=?  (lambda (t1 t2) (<= (car t1) (car t2)))])
     (make-queue <=?)))
 
 ;; StartFunctionDoc-en
@@ -155,14 +154,15 @@
 
 (define (print-error e)
   (cond [(exn? e)
-         (printf "~a ~n" (exn-message e))
+         (printf "[ ~a ]~n~n" (exn-message e))
          (printf "call stack:~n")
          (for ([c (continuation-mark-set->context
                     (exn-continuation-marks e))])
            (if (cdr c)
-             (printf "~a [line ~a in ~a]~n"
+             (printf "  ~a [line ~a in ~a]~n"
                      (car c) (srcloc-line (cdr c)) (srcloc-source (cdr c)))
-             (printf "~a~n" (car c))))]
+             (printf "  ~a~n" (car c))))
+         (newline)]
         [else
          (printf "** unrecognized error: ~a **~n" e)]))
 
@@ -182,7 +182,7 @@
                       ;; handle errors by reporting and removing task in error
                       (lambda (e)
                         (rm-task name)
-                        (printf "Error in Task '~a - Task removed.~%" name)
+                        (printf "Error in Task '~a - Task removed.~%~%" name)
                         (print-error e))])
       (unless (call-task task)
         (rm-task task))))
