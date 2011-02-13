@@ -31,9 +31,9 @@
 (define (queue-empty? q) (not (queue-head q)))
 
 (define (queue-count q)
-  (let count ([n (queue-head q)])
-    (if n (+ (count (node-left n))
-             (count (node-right n)) 1)
+  (let count ([node (queue-head q)])
+    (if node (+ 1 (count (node-left node))
+                (count (node-right node)))
       0)))
 
 

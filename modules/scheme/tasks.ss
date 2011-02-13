@@ -43,10 +43,9 @@
 
 ; A (mutable) priority queue of timed tasks.
 (define timed-tasks
-  (let ([<=? (lambda (t1 t2) (<= (car t1) (car t2)))])
+  (begin
+    (define (<=? t1 t2) (<= (car t1) (car t2)))
     (make-queue <=?)))
-
-(define (clear-timed-tasks) (queue-erase! timed-tasks))
 
 ;; StartFunctionDoc-en
 ;; spawn-task
@@ -149,6 +148,10 @@
 
 (define (spawn-timed-task time thunk)
   (queue-insert! timed-tasks (cons time thunk)))
+
+(define (clear-timed-tasks) (queue-erase! timed-tasks))
+
+
 
 (define (print-error e)
   (cond [(exn? e)
