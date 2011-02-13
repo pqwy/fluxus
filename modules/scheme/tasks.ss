@@ -33,8 +33,8 @@
 #lang racket/base
 (require "time.ss" "pqueue.ss")
 
-(provide spawn-task ls-tasks rm-task rm-all-tasks run-tasks spawn-timed-task clear-timed-tasks
-         time-now print-error task-running?)
+(provide spawn-task ls-tasks rm-task rm-all-tasks run-tasks spawn-timed-task after
+         clear-timed-tasks time-now print-error task-running?)
 
 
 ;; The mapping between names and tasks. Hash, because this could frequently
@@ -63,7 +63,8 @@
 ;; EndFunctionDoc    
 
 (define (spawn-task thunk [name (gensym 'task-)])
-  (set! tasks (hash-set tasks name thunk)))
+  (set! tasks (hash-set tasks name thunk))
+  name)
 
 ;; StartFunctionDoc-en
 ;; rm-task
@@ -147,6 +148,12 @@
 
 (define (spawn-timed-task time thunk)
   (queue-insert! timed-tasks (cons time thunk)))
+
+(define-syntax-rule
+  (after seconds b b1 ...)
+  (spawn-timed-task (+ (time-now) seconds)
+                    (lambda () b b1 ...)))
+
 
 (define (clear-timed-tasks) (queue-erase! timed-tasks))
 
