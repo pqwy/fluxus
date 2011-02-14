@@ -1,4 +1,4 @@
-#lang racket
+#lang racket/base
 
 (require "tasks.ss" "building-blocks.ss")
 
@@ -41,19 +41,17 @@
 ;; Break on through to the other side, yeah.
 ;;
 (define (propagate-state thunk)
-  
-  (define prim (current-grab-target))
 
-  (if prim
-    ;; If we are in a context of a grab, reinstall `with-primitive' on the other
-    ;; side of the prompt frame, where it is captured with the continuation.
-    (lambda () (with-primitive prim (thunk)))
-    ;; Similarly, if this is not a grab, (re-) install `with-state' inside the
-    ;; prompt.
-    (let ([state (get-ogl-state)])
-      (lambda () (with-state
-                   (apply-saved-ogl-state state)
-                   (thunk))))))
+  ;; If we are in a context of a grab, reinstall `with-primitive' on the other
+  ;; side of the prompt frame, where it is captured with the continuation.
+  (cond [(current-grab-target)
+         => (lambda (prim) (with-primitive prim (thunk)))]
+
+        ;; Similarly, if this is not a grab, (re-) install `with-state' inside
+        ;; the prompt.
+        [else (let ([state (get-ogl-state)])
+                (with-state (apply-saved-ogl-state state)
+                            (thunk)))]))
 
 
 (define current-frame-stuff (make-parameter #f))
@@ -67,7 +65,7 @@
   ;; not. #f: remove if spawn-task'd.
   (parameterize ([current-frame-stuff #f])
     (call-with-prompt
-      (lambda () ((propagate-state thunk)) #f)))
+      (lambda () (propagate-state thunk) #f)))
 
   (void))
 
@@ -77,7 +75,8 @@
   (run-restartable-thunk (lambda () b b1 ...)))
 
 
-;; End task and reschedule the rest of computation after given number of seconds: a wait.
+;; End task and reschedule the rest of computation after given number of
+;; seconds: a wait.
 ;;
 (define (restart-after sec)
   (trap (lambda (k)
@@ -87,14 +86,14 @@
 ;;
 (define (restart-next-frame)
   (trap (lambda (k)
-          (let ([cfs (current-frame-stuff)])
-            (if cfs (set-box! (cdr cfs) k)
-              (let ([new-cfs (cons (gensym 'restartable-task-) (box k))])
+          (cond [(current-frame-stuff)
+                 => (lambda (cfs) (set-box! (cdr cfs) k))]
+                [else
+                  (let ([cfs (cons (gensym 'restartable-task-) (box k))])
 
-                (define (restartable-task-runner)
-                  (parameterize ([current-frame-stuff new-cfs])
-                    ((unbox (cdr new-cfs)))))
+                    (define (restartable-task-runner)
+                      (parameterize ([current-frame-stuff cfs])
+                        ((unbox (cdr cfs)))))
 
-                (spawn-task restartable-task-runner (car new-cfs))))))))
-
+                    (spawn-task restartable-task-runner (car cfs)))]))))
 

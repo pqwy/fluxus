@@ -46,6 +46,14 @@
   (let ([<=?  (lambda (t1 t2) (<= (car t1) (car t2)))])
     (make-queue <=?)))
 
+
+;; Check thunks on entrance.
+(define (assert-thunk who what)
+  (unless (and (procedure? what)
+               (procedure-arity-includes? what 0))
+    (error who "Received non-thunk: ~s~%" what)))
+
+
 ;; StartFunctionDoc-en
 ;; spawn-task
 ;; Returns: void
@@ -63,8 +71,8 @@
 ;; EndFunctionDoc    
 
 (define (spawn-task thunk [name (gensym 'task-)])
-  (set! tasks (hash-set tasks name thunk))
-  name)
+  (assert-thunk 'spawn-task thunk)
+  (set! tasks (hash-set tasks name thunk)))
 
 ;; StartFunctionDoc-en
 ;; rm-task
@@ -126,14 +134,6 @@
 (define (task-running? name)
   (hash-has-key? tasks name))
 
-
-(define (thunk? t) (and (procedure? t) (procedure-arity-includes? t 0)))
-
-(define (call-task task)
-  (cond [(thunk? task) (task)]
-;;      [(continuation? task) (task 'resume)]
-        [else (error "Non-thunk or continuation passed to call-task")]))
-
 ;; StartFunctionDoc-en
 ;; spawn-timed-task time thunk
 ;; Returns: void
@@ -147,7 +147,9 @@
 ;; EndFunctionDoc    
 
 (define (spawn-timed-task time thunk)
+  (assert-thunk 'spawn-timed-task thunk)
   (queue-insert! timed-tasks (cons time thunk)))
+
 
 (define-syntax-rule
   (after seconds b b1 ...)
@@ -184,6 +186,8 @@
   ;; Iterate through a snapshot of (recurrent) tasks. If any task starts a new
   ;; one, the iteration is safe, and the new task will appear the next time
   ;; around.
+  ;; GOTCHA: Similarly, if any of the tasks _removes_ a task, if the removed
+  ;; task did not run yet, it will still be run one last time.
   (for ([(name task) (in-hash tasks)])
     (with-handlers ([not-exn:break?
                       ;; handle errors by reporting and removing task in error
@@ -191,26 +195,25 @@
                         (rm-task name)
                         (printf "Error in Task '~a - Task removed.~%~%" name)
                         (print-error e))])
-      (unless (call-task task)
-        (rm-task name))))
 
-  ;; Repeatedly dequeue the earliest timed task, until no more. Changes the queue
-  ;; in-place, and any recursively started timed tasks are added immediately.
-  ;; This means they could run during the same loop.
-  (let roll ()
-    (unless (or (queue-empty? timed-tasks)
-                (< (time-now) (car (queue-top timed-tasks))))
-      (let ([task (cdr (queue-top timed-tasks))])
-        (queue-delete-top! timed-tasks)
-        (with-handlers ([not-exn:break?
-                          (lambda (e)
-                            (printf "Error in Timed Task: ~%")
-                            (print-error e))])
-          (call-task task))
-        (roll)))))
+      (unless (task) (rm-task name))))
+
+  ;; Repeatedly dequeue the earliest timed task, until no more. Changes the
+  ;; queue in-place, and any recursively started timed tasks are added
+  ;; immediately. This means they could run during the same loop.
+  (do () ((or (queue-empty? timed-tasks)
+              (< (time-now) (car (queue-top timed-tasks)))))
+
+    (let ([task (cdr (queue-top timed-tasks))])
+      (queue-delete-top! timed-tasks)
+      (with-handlers ([not-exn:break?
+                        (lambda (e)
+                          (printf "Error in Timed Task: ~%")
+                          (print-error e))])
+        (task)))))
 
 
-; RACKET THREADS. THEY DON'T WORK.
+; XXX RACKET THREADS. THEY DON'T WORK.
 ;
 ; ;; A random number. It was obtained by a throw of an unbiased dice.
 ; (define tasks-wait-period 5)

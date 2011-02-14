@@ -1,8 +1,9 @@
 ;;
 ;; Priority queue. The underlying structure is a mutable skew tree. Simple and
-;; plenty fast.
+;; plenty fast. (Implicit heaps packaged with racket are really bad on bursts.)
 ;;
-;; XXX Figure out why the match macro won't work on structs in fluxus.
+;; XXX
+;; Figure out why the match macro won't work on structs in fluxus.
 ;; (syntax-local 'structname) during expansion, in fluxus, is not struct-info?
 ;; Why??
 
@@ -38,28 +39,36 @@
 
 
 (define (queue-insert! q item)
+
   (let ([head (queue-head q)] [<=? (queue-<=? q)])
 ;   (match-let ([(queue head <=?) q])
+
     (set-queue-head! q (union-nodes! <=? (node item #f #f) head))))
 
 (define (queue-delete-top! q)
+
   (let* ([node (queue-head q)] [<=? (queue-<=? q)]
          [left (node-left node)] [right (node-right node)])
 ;   (match-let ([(queue (node _ left right) <=?) q])
+
     (set-queue-head! q (union-nodes! <=? left right))))
 
 (define (union-nodes! <=? a b)
+
+  ; Gah :(
   (cond [(not b) a]
         [(not a) b]
         [else
-          (let-values ([(ia la ra)
-                        (values (node-item a) (node-left a) (node-right a))]
-                       [(ib lb rb)
-                        (values (node-item b) (node-left b) (node-right b))])
+          (let ([ia (node-item a)] [la (node-left a)] [ra (node-right a)]
+                [ib (node-item b)] [lb (node-left b)] [rb (node-right b)])
             (cond [(<=? ia ib)
-                   (set-node-left! a (union-nodes! <=? b ra)) (set-node-right! a la) a]
+                   (set-node-left! a (union-nodes! <=? b ra))
+                   (set-node-right! a la)
+                   a]
                   [else
-                    (set-node-left! b (union-nodes! <=? a rb)) (set-node-right! b lb) b]))]))
+                    (set-node-left! b (union-nodes! <=? a rb))
+                    (set-node-right! b lb)
+                    b]))]))
 ;   (match* (a b)
 ;     [((node ia la ra) (node ib lb rb))
 ;      (cond [(<=? ia ib)
