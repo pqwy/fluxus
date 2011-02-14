@@ -192,7 +192,7 @@
                         (printf "Error in Task '~a - Task removed.~%~%" name)
                         (print-error e))])
       (unless (call-task task)
-        (rm-task task))))
+        (rm-task name))))
 
   ;; Repeatedly dequeue the earliest timed task, until no more. Changes the queue
   ;; in-place, and any recursively started timed tasks are added immediately.

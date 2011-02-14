@@ -11,21 +11,17 @@
 (define tag (make-continuation-prompt-tag 'restartable-boundary))
 
 ;; Set the prompt. The abort-handler does not reinstall the it, so rescheduling
-;; operations happen in the dynamic extent of whatever was there previously.
+;; operations are not delimited.
 ;;
 (define (call-with-prompt f)
   (call-with-continuation-prompt
     f tag
     (lambda (return-thunk) (return-thunk))))
 
-(define (graft-prompt k)
-  (define (continuation . args)  ; Name it.
-    (call-with-prompt (lambda () (apply k args))))
-  continuation)
-
-;; Pretty much the classical `shift': capture the continuation delimited by our
-;; prompt, abort it, and apply the handler to the continuation in a tail
-;; context. The continuation is wrapped to reinstall the prompt when invoked.
+;; Pretty much the classical `shift' operator: capture the continuation
+;; delimited by our prompt, abort it, then and apply the handler to the
+;; continuation in a tail context. The continuation is wrapped to reinstall the
+;; prompt when invoked.
 ;;
 (define (trap f)
   (unless (continuation-prompt-available? tag)
@@ -36,19 +32,22 @@
                   (lambda () (f (graft-prompt k)))))
     tag))
 
+(define (graft-prompt k)
+  (define (continuation . a)
+    (call-with-prompt (lambda () (apply k a))))
+  continuation)
 
-;; Break on through to the other side!
+
+;; Break on through to the other side, yeah.
 ;;
 (define (propagate-state thunk)
   
   (define prim (current-grab-target))
 
   (if prim
-
     ;; If we are in a context of a grab, reinstall `with-primitive' on the other
     ;; side of the prompt frame, where it is captured with the continuation.
     (lambda () (with-primitive prim (thunk)))
-
     ;; Similarly, if this is not a grab, (re-) install `with-state' inside the
     ;; prompt.
     (let ([state (get-ogl-state)])
@@ -63,10 +62,14 @@
 ;; reentry.
 ;;
 (define (run-restartable-thunk thunk)
+
   ;; Everything on the other side of the prompt is captured. Everything else is
-  ;; not.
+  ;; not. #f: remove if spawn-task'd.
   (parameterize ([current-frame-stuff #f])
-    (call-with-prompt (propagate-state thunk))))
+    (call-with-prompt
+      (lambda () ((propagate-state thunk)) #f)))
+
+  (void))
 
 
 (define-syntax-rule
@@ -78,9 +81,7 @@
 ;;
 (define (restart-after sec)
   (trap (lambda (k)
-          (let ([cfs (current-frame-stuff)])
-            (when cfs (rm-task (car cfs))))
-          (spawn-timed-task (+ (time-now) sec) k))))
+          (spawn-timed-task (+ (time-now) sec) k) #f)))
 
 ;; Reschedule on the next frame. Has a fast-path for repeatedly doing so.
 ;;
@@ -90,7 +91,7 @@
             (if cfs (set-box! (cdr cfs) k)
               (let ([new-cfs (cons (gensym 'restartable-task-) (box k))])
 
-                (define (restartable-task-runner) ; Name it.
+                (define (restartable-task-runner)
                   (parameterize ([current-frame-stuff new-cfs])
                     ((unbox (cdr new-cfs)))))
 
