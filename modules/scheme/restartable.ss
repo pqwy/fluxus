@@ -87,13 +87,14 @@
 (define (restart-next-frame)
   (trap (lambda (k)
           (cond [(current-frame-stuff)
-                 => (lambda (cfs) (set-box! (cdr cfs) k))]
+                 => (lambda (cfs) (set-box! cfs k))]
                 [else
-                  (let ([cfs (cons (gensym 'restartable-task-) (box k))])
+                  (let ([cfs (box k)])
 
                     (define (restartable-task-runner)
                       (parameterize ([current-frame-stuff cfs])
-                        ((unbox (cdr cfs)))))
+                        ((unbox cfs))))
 
-                    (spawn-task restartable-task-runner (car cfs)))]))))
+                    (spawn-task restartable-task-runner
+                                (gensym 'restartable-task-)))]))))
 
