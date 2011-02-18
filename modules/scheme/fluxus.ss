@@ -16,6 +16,7 @@
      "maths.ss"
      "testing.ss"
      "tasks.ss"
+     "restartable.ss"
      "shapes.ss"
      "ffgl.ss")
 
@@ -34,5 +35,6 @@
  (all-from-out "maths.ss")
  (all-from-out "testing.ss")
  (all-from-out "tasks.ss")
+ (all-from-out "restartable.ss")
  (all-from-out "shapes.ss")
  (all-from-out "ffgl.ss"))
