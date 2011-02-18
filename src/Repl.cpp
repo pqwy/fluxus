@@ -96,21 +96,20 @@ void Repl::Print(Scheme_Object *obj)
 	MZ_GC_DECL_REG(1);
 	MZ_GC_VAR_IN_REG(0, obj);
     MZ_GC_REG();
-	long length=0;
 	if (obj)
 	{
 		if (obj == scheme_multiple_values)
 		{
 			for (int i=0; i<scheme_multiple_count; i++)
 			{
-				char *str = scheme_display_to_string(scheme_multiple_array[i], &length);
+				char *str = scheme_display_to_string(scheme_multiple_array[i], NULL);
 				Print(string_to_wstring(string(str)));
 				if (i!=scheme_multiple_count-1) Print(L"\n");
 			}
 		}
 		else
 		{
-			char *str = scheme_display_to_string(obj, &length);            
+			char *str = scheme_display_to_string(obj, NULL);            
 			Print(string_to_wstring(string(str)));
 		}
 	}
